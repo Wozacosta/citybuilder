@@ -126,7 +126,7 @@ function bbox(d) {
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (p[(y * W + x) * 4 + 3] > 6) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
   return [x0, y0, x1 - x0 + 1, y1 - y0 + 1];
 }
-const AW = 2048; let atlasH = 8192;
+const AW = 4096; let atlasH = 8192;
 const atlas = document.createElement('canvas'); atlas.width = AW; atlas.height = atlasH; const ag = atlas.getContext('2d');
 const matl = document.createElement('canvas'); matl.width = AW; matl.height = atlasH; const mg = matl.getContext('2d');
 let sx = 0, sy = 0, shelf = 0;
@@ -134,7 +134,7 @@ let sx = 0, sy = 0, shelf = 0;
 window.bake = async (only) => {
   const frames = {}, t0 = performance.now();
   sx = sy = shelf = 0; ag.clearRect(0, 0, AW, atlasH); mg.clearRect(0, 0, AW, atlasH);
-  const list = only ? RECIPES.filter(r => only.includes(r.key.split(':')[0])) : RECIPES;
+  const list = only ? RECIPES.filter(r => only.some(o => o.endsWith('*') ? r.key.startsWith(o.slice(0, -1)) : o.startsWith(':') ? r.key.includes(o) : r.key.split(':')[0] === o)) : RECIPES;
   for (const rec of list) {
     const root = await build(rec);
     scene.add(root); scene.add(catcher);
@@ -167,7 +167,7 @@ window.bake = async (only) => {
   mgx.putImageData(md, 0, 0);
   console.log('baked', list.length, 'sprites in', Math.round(performance.now() - t0), 'ms, atlas', AW, 'x', used);
   window.ATLAS = A; window.MASK = Mk;
-  return { frames, atlas: A.toDataURL('image/webp', 0.9), mask: Mk.toDataURL('image/webp', 0.85), size: [AW, used] };
+  return { frames, atlas: A.toDataURL('image/webp', 0.86), mask: Mk.toDataURL('image/webp', 0.78), size: [AW, used] };
 };
 window.READY = true;
 </script></body></html>

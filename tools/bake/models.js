@@ -238,3 +238,4 @@ export function mansion(seed) {
   for (let k = 0; k < 4; k++) { const x = (r() - 0.5) * w * 0.8, z = (r() - 0.5) * d * 0.8; rod(g, [x, h, z], [x, h + 0.12 + r() * 0.18, z], 0.004, ant); }
   return g;
 }
+export { gen } from './buildings.js';

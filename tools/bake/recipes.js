@@ -117,4 +117,22 @@ R.forEach((rec, i) => { const lv = rec.key[0] + rec.key[1]; if (/^(R[345]|C[345]
 [0, 1, 2, 3].forEach(k => add('R3:m' + k, { plate: 'pave', custom: ['mansion', 11 + k * 3] }));
 [0, 1, 2].forEach(k => add('R4:m' + k, { plate: 'pave', custom: ['mansion', 41 + k * 5] }));
 [0, 1, 2].forEach(k => add('C3:m' + k, { plate: 'pave', custom: ['mansion', 71 + k * 7] }));
+
+// ---- procedural buildings (buildings.js): many shapes per level, each one seeded
+const G = (key, o, plate = 'pave') => add(key, { plate, custom: ['gen', o] });
+let sd = 1000;
+const many = (lv, n, mk, plate) => { for (let k = 0; k < n; k++) G(lv + ':g' + k, { seed: ++sd, ...mk(k) }, typeof plate === 'function' ? plate(k) : plate); };
+many('R1', 8, () => ({ kind: 'villa' }), 'lawn');
+many('R2', 12, k => k % 3 === 0 ? { kind: 'belle', floors: 4 } : k % 3 === 1 ? { kind: 'tong', floors: 4 } : { kind: 'riviera', floors: 3 });
+many('R3', 10, k => k % 3 === 0 ? { kind: 'terraces', tiers: 3 + (k % 2) } : k % 3 === 1 ? { kind: 'cross', h: 0.95, hv: 0.3, tri: k % 2 } : k % 2 ? { kind: 'belle', floors: 7 } : { kind: 'tong', floors: 7 });
+many('R4', 12, k => k % 4 === 0 ? { kind: 'cross', h: 2.3, hv: 0.6, tri: k % 8 === 4 } : k % 4 === 1 ? { kind: 'podTower', h: 2.2, hv: 0.8, twin: true } : k % 4 === 2 ? { kind: 'terraces', tiers: 6 } : { kind: 'podTower', h: 2.4, hv: 0.8 });
+many('R5', 10, k => k % 3 === 0 ? { kind: 'podTower', h: 3.8, hv: 1.2, garden: true } : k % 3 === 1 ? { kind: 'podTower', h: 3.4, hv: 1.0, twin: true, glassy: true } : { kind: 'tower', h: 3.8, hv: 1.0, shape: ['cyl', 'octa', 'setback', 'box'][k % 4] });
+many('C1', 8, k => ({ kind: 'shops', market: k % 3 === 0 }), 'plaza');
+many('C2', 9, k => k % 3 === 2 ? { kind: 'tong', floors: 6 } : { kind: 'mall' }, 'plaza');
+many('C3', 12, k => ({ kind: 'tower', h: 0.85, hv: 0.45, shape: ['box', 'deco', 'octa', 'blade', 'setback', 'cyl'][k % 6] }), 'plaza');
+many('C4', 14, k => ({ kind: 'tower', h: 2.2, hv: 1.0, shape: ['setback', 'octa', 'taper', 'cyl', 'twist', 'deco', 'blade', 'diagrid', 'twin', 'box'][k % 10] }), 'plaza');
+many('C5', 14, k => ({ kind: 'tower', h: 4.4, hv: 2.6, shape: ['taper', 'twist', 'setback', 'cyl', 'diagrid', 'octa', 'deco', 'twin'][k % 8], crown: ['spire', 'pyramid', 'ring', 'lantern'][k % 4] }), 'plaza');
+many('I1', 2, k => ({ kind: 'works', v: 1 }), 'yard');
+many('I2', 3, k => ({ kind: 'works', v: k % 2 }), 'yard');
+many('I3', 3, k => ({ kind: 'works', v: 2 - (k % 2) * 2 }), 'dark');
 export const RECIPES = R;
