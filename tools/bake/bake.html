@@ -1,0 +1,173 @@
+<!DOCTYPE html><html><body style="margin:0;background:#556">
+<script type="importmap">{"imports":{"three":"/bake/node_modules/three/build/three.module.js","three/addons/":"/bake/node_modules/three/examples/jsm/"}}</script>
+<script type="module">
+import { THREE, load } from './common.js';
+import { RECIPES } from './recipes.js';
+import * as MODELS from './models.js';
+
+// ---- camera matching the game's 2:1 projection --------------------------------
+// game: +x -> screen (+32,+16), +y -> (-32,+16), up 1px per z unit. three: game x = +X, game y = +Z, up = +Y.
+// one tile = 1 unit; azimuth 45deg, elevation 30deg gives the 2:1 tile; tile width 64 world px.
+const SS = 2, K = 64 / Math.SQRT2 * SS;      // canvas px per unit
+const W = 380, H = 1400, CX = W / 2, CY = H - 120;   // tile centre on the render canvas
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setSize(W, H); renderer.setPixelRatio(1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NeutralToneMapping; renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setClearColor(0x000000, 0);
+const el = 30 * Math.PI / 180, cam = new THREE.OrthographicCamera(-CX / K, (W - CX) / K, CY / K, -(H - CY) / K, 0.1, 100);
+cam.position.set(Math.cos(el) / Math.SQRT2 * 30, Math.sin(el) * 30, Math.cos(el) / Math.SQRT2 * 30); cam.lookAt(0, 0, 0);
+// the look-at point sits at the frustum origin, so ground (0,0,0) lands exactly on (CX, CY)
+
+const scene = new THREE.Scene();
+const hemi = new THREE.HemisphereLight(0xe4ecff, 0x8a7a66, 1.6); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff0da, 2.5);
+sun.position.set(-2.2, 6, 4.2); sun.castShadow = true;
+Object.assign(sun.shadow.camera, { left: -4, right: 4, top: 4, bottom: -4, near: 0.1, far: 30 });
+sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.015; sun.shadow.radius = 3;
+scene.add(sun); scene.add(sun.target);
+const catcher = new THREE.Mesh(new THREE.PlaneGeometry(6, 6), new THREE.ShadowMaterial({ opacity: 0.32 }));
+catcher.rotation.x = -Math.PI / 2; catcher.position.y = 0.001; catcher.receiveShadow = true;
+
+// ---- colormap recolouring --------------------------------------------------------
+const texCache = new Map(), maskCache = new Map(), imgCache = new Map();
+function hexRGB(h) { const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+const ids = new Map(); let nid = 0;
+function iid(img) { if (!ids.has(img)) ids.set(img, ++nid); return ids.get(img); }
+// classify a texel: 'wall' light neutral, 'win' blue glass, 'glow' orange/yellow strip
+function kind(r, g, b) {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  if (b > r + 28 && g > r + 15 && b >= g && mx > 150) return 'win';
+  if (mx - mn < 22 && mx > 200) return 'wall';
+  if (mx - mn < 22 && mx > 120) return 'wall2';
+  if (r > 200 && g > 110 && b < 90) return 'glow';
+  return '';
+}
+async function tinted(img, tint, tint2, glass) {
+  const key = iid(img) + tint + tint2 + glass; if (texCache.has(key)) return texCache.get(key);
+  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+  const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, c.width, c.height), p = d.data, t = tint && hexRGB(tint), t2 = tint2 && hexRGB(tint2), gl = glass && hexRGB(glass);
+  for (let i = 0; i < p.length; i += 4) {
+    const k = kind(p[i], p[i + 1], p[i + 2]);
+    const tt = k === 'wall' ? t : k === 'wall2' ? t2 : k === 'win' ? gl : null;
+    if (tt) { const l = (p[i] + p[i + 1] + p[i + 2]) / 765 * (k === 'win' ? 1.15 : 1); for (let j = 0; j < 3; j++) { const v = Math.min(255, tt[j] * l * 1.04); p[i + j] = k === 'win' ? (p[i + j] + v) / 2 : v; } }
+  }
+  g.putImageData(d, 0, 0);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.flipY = false;
+  tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
+  texCache.set(key, tex); return tex;
+}
+async function maskTex(img) {
+  const url = iid(img); if (maskCache.has(url)) return maskCache.get(url);
+  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+  const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+  const d = g.getImageData(0, 0, c.width, c.height), p = d.data;
+  for (let i = 0; i < p.length; i += 4) { const k = kind(p[i], p[i + 1], p[i + 2]); if (k === 'win') p[i] = p[i + 1] = p[i + 2] = 255; else if (k === 'glow') { p[i] = 170; p[i + 1] = 110; p[i + 2] = 40; } else p[i] = p[i + 1] = p[i + 2] = 0; }
+  g.putImageData(d, 0, 0);
+  const tex = new THREE.CanvasTexture(c); tex.flipY = false; tex.magFilter = tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
+  maskCache.set(url, tex); return tex;
+}
+
+// ---- build one recipe --------------------------------------------------------------
+const PLATE = { lawn: 0x7fae5a, pave: 0xcfc8b8, yard: 0xa7a196, plaza: 0xe0d6c0, dark: 0x8b8a86 };
+async function build(rec) {
+  const root = new THREE.Group();
+  if (rec.plate) {
+    const ps = (rec.size || 1) - 0.04;
+    const pm = new THREE.Mesh(new THREE.BoxGeometry(ps, 0.03, ps), new THREE.MeshStandardMaterial({ color: PLATE[rec.plate] || rec.plate, roughness: 1 }));
+    pm.position.y = 0.015; pm.receiveShadow = true; root.add(pm);
+    if (rec.kerb !== false) { const km = new THREE.Mesh(new THREE.BoxGeometry(ps + 0.02, 0.02, ps + 0.02), new THREE.MeshStandardMaterial({ color: 0xb9b3a6, roughness: 1 })); km.position.y = 0.01; root.add(km); }
+  }
+  if (rec.custom) {
+    const [fn, arg] = rec.custom, gm = MODELS[fn](arg); if (rec.scale) gm.scale.setScalar(rec.scale);
+    gm.position.y = rec.plate ? 0.03 : 0; gm.traverse(o => { o.userData.custom = true; if (o.userData.light) (root.userData.lights ||= []).push(o); });
+    root.add(gm);
+  }
+  for (const it of rec.items || []) {
+    const [kit, name] = it.m.split('/'), src = await load(kit, name), obj = src.clone(true);
+    const box = new THREE.Box3().setFromObject(obj), sz = box.getSize(new THREE.Vector3()), ctr = box.getCenter(new THREE.Vector3());
+    const s = (it.fit || 0.9) / Math.max(sz.x, sz.z);
+    const inner = new THREE.Group(); obj.position.set(-ctr.x, -box.min.y, -ctr.z); inner.add(obj);
+    inner.rotation.y = (it.rot || 0) * Math.PI / 2;
+    const outer = new THREE.Group(); outer.add(inner); outer.scale.set(s, s * (it.sy || 1), s);
+    outer.position.set(it.x || 0, (it.y || 0) + (rec.plate ? 0.03 : 0), it.z || 0);
+    root.add(outer);
+    if (it.m.includes('chimney')) (root.userData.smoke ||= []).push(outer);
+  }
+  const mats = [];
+  root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return root;
+}
+async function applyLook(root, rec, mode) {
+  const jobs = [];
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    if (!o.userData.orig) o.userData.orig = o.material;
+    const m0 = o.userData.orig;
+    if (o.userData.custom) { o.material = mode === 'day' ? m0 : o.userData.maskMat || new THREE.MeshBasicMaterial({ color: o.userData.glow || 0 }); return; }
+    if (mode === 'day') {
+      if (m0.map) jobs.push(tinted(m0.map.source.data, rec.tint, rec.tint2, rec.glass).then(t => { const m = m0.clone(); m.map = t; m.roughness = 0.85; m.metalness = 0; o.material = m; }));
+      else o.material = m0;
+    } else {
+      if (m0.map) jobs.push(maskTex(m0.map.source.data).then(t => { o.material = new THREE.MeshBasicMaterial({ map: t }); }));
+      else o.material = new THREE.MeshBasicMaterial({ color: 0 });
+    }
+  });
+  await Promise.all(jobs);
+}
+
+// ---- render + crop + pack -------------------------------------------------------
+const tmp = document.createElement('canvas'); tmp.width = W; tmp.height = H; const tg = tmp.getContext('2d', { willReadFrequently: true });
+function grab() { tg.clearRect(0, 0, W, H); tg.drawImage(renderer.domElement, 0, 0); return tg.getImageData(0, 0, W, H); }
+function bbox(d) {
+  let x0 = W, y0 = H, x1 = -1, y1 = -1; const p = d.data;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (p[(y * W + x) * 4 + 3] > 6) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  return [x0, y0, x1 - x0 + 1, y1 - y0 + 1];
+}
+const AW = 2048; let atlasH = 8192;
+const atlas = document.createElement('canvas'); atlas.width = AW; atlas.height = atlasH; const ag = atlas.getContext('2d');
+const matl = document.createElement('canvas'); matl.width = AW; matl.height = atlasH; const mg = matl.getContext('2d');
+let sx = 0, sy = 0, shelf = 0;
+
+window.bake = async (only) => {
+  const frames = {}, t0 = performance.now();
+  sx = sy = shelf = 0; ag.clearRect(0, 0, AW, atlasH); mg.clearRect(0, 0, AW, atlasH);
+  const list = only ? RECIPES.filter(r => only.includes(r.key.split(':')[0])) : RECIPES;
+  for (const rec of list) {
+    const root = await build(rec);
+    scene.add(root); scene.add(catcher);
+    await applyLook(root, rec, 'day'); renderer.shadowMap.needsUpdate = true; renderer.render(scene, cam);
+    const day = grab(), [bx, by, bw, bh] = bbox(day);
+    scene.remove(catcher); hemi.visible = sun.visible = false; renderer.toneMapping = THREE.NoToneMapping;
+    await applyLook(root, rec, 'mask'); renderer.render(scene, cam);
+    const mask = grab(); hemi.visible = sun.visible = true; renderer.toneMapping = THREE.NeutralToneMapping;
+    const proj = v => { v = v.project(cam); return [+(((v.x + 1) / 2 * W - CX) / SS).toFixed(1), +(((1 - v.y) / 2 * H - CY) / SS).toFixed(1)]; };
+    root.updateWorldMatrix(true, true);
+    const lights = (root.userData.lights || []).map(o => proj(o.getWorldPosition(new THREE.Vector3())));
+    const smoke = (root.userData.smoke || []).map(o => { o.updateWorldMatrix(true, true); const b = new THREE.Box3().setFromObject(o), v = new THREE.Vector3((b.min.x + b.max.x) / 2, b.max.y, (b.min.z + b.max.z) / 2).project(cam);
+      return [+(((v.x + 1) / 2 * W - CX) / SS).toFixed(1), +(((1 - v.y) / 2 * H - CY) / SS).toFixed(1)]; });
+    scene.remove(root);
+    if (sx + bw > AW) { sx = 0; sy += shelf + 2; shelf = 0; }
+    const dc = document.createElement('canvas'); dc.width = W; dc.height = H; dc.getContext('2d').putImageData(day, 0, 0);
+    const mc = document.createElement('canvas'); mc.width = W; mc.height = H; mc.getContext('2d').putImageData(mask, 0, 0);
+    ag.drawImage(dc, bx, by, bw, bh, sx, sy, bw, bh); mg.drawImage(mc, bx, by, bw, bh, sx, sy, bw, bh);
+    // frame: atlas x,y,w,h (canvas px) and tile-centre offset in world px
+    (frames[rec.key.split(':')[0]] ||= []).push([sx, sy, bw, bh, (CX - bx) / SS, (CY - by) / SS, smoke, lights, rec.custom ? rec.custom[0] : '']);
+    sx += bw + 2; shelf = Math.max(shelf, bh);
+  }
+  const used = sy + shelf + 2;
+  const crop = (c) => { const o = document.createElement('canvas'); o.width = AW; o.height = used; o.getContext('2d').drawImage(c, 0, 0); return o; };
+  const A = crop(atlas), Mk = crop(matl);
+  // mask: store luminance as alpha of white so it is cheap to tint at runtime
+  const mgx = Mk.getContext('2d'), md = mgx.getImageData(0, 0, AW, used), q = md.data;
+  // mask: colour normalised to full brightness, strength in alpha (white = windows, colours = neon)
+  for (let i = 0; i < q.length; i += 4) { const m = Math.max(q[i], q[i + 1], q[i + 2]); if (m < 8) { q[i + 3] = 0; continue; } q[i + 3] = m * q[i + 3] / 255; for (let j = 0; j < 3; j++) q[i + j] = q[i + j] * 255 / m; }
+  mgx.putImageData(md, 0, 0);
+  console.log('baked', list.length, 'sprites in', Math.round(performance.now() - t0), 'ms, atlas', AW, 'x', used);
+  window.ATLAS = A; window.MASK = Mk;
+  return { frames, atlas: A.toDataURL('image/webp', 0.9), mask: Mk.toDataURL('image/webp', 0.85), size: [AW, used] };
+};
+window.READY = true;
+</script></body></html>

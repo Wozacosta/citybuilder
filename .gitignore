@@ -1,0 +1,5 @@
+.DS_Store
+node_modules/
+tools/dl/
+tools/bake/baked.json
+tools/bake/out_*.png
