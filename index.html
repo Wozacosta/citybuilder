@@ -61,7 +61,11 @@
     max-width: calc(100vw - 24px); text-align: center;
   }
   #toast.show { opacity: 1; }
+  #links { bottom: 14px; right: 12px; padding: 6px 10px; font-size: 12px; display: flex; gap: 10px; }
+  #links a { color: inherit; text-decoration: none; opacity: .75; }
+  #links a:hover { opacity: 1; text-decoration: underline; }
   @media (max-width: 1100px) { #info { bottom: 96px; } }
+  @media (max-width: 1100px) { #links { bottom: 96px; } }
   @media (max-width: 900px) { #news { display: none !important; } }
   @media (max-width: 760px) {
     #tools button { min-width: 0; padding: 6px 4px; }
@@ -110,6 +114,10 @@
 <div id="info" class="panel"></div>
 <div id="news" class="panel" style="display:none"></div>
 <div id="toast" class="panel"></div>
+<div id="links" class="panel">
+  <a href="https://github.com/Wozacosta/citybuilder" target="_blank" rel="noopener">GitHub</a>
+  <a href="https://woza.ink" target="_blank" rel="noopener">woza.ink</a>
+</div>
 
 <script id="baked">
 // building sprites rendered from the Kenney City Kits (CC0, kenney.nl), baked by an offline three.js pass
